@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anaya GameXZone - Review</title>
+<title>Anaya GameXzone - Review</title>
 <style>
   *{box-sizing:border-box}
   body{font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:16px 16px 90px;background:#f7f7fb;color:#222}
@@ -35,8 +35,6 @@
   .more{display:none;width:100%;padding:13px;margin:8px 0;border:2px dashed #6c2bd9;border-radius:12px;
         background:#fff;color:#6c2bd9;font-size:16px;font-weight:600}
   .more:hover{background:#f3edff}
-  .more:disabled{opacity:.5}
-  .loading{text-align:center;color:#6c2bd9;padding:14px;font-weight:600}
 
   textarea{width:100%;height:90px;font-size:16px;padding:10px;border-radius:10px;border:1px solid #ccc;font-family:inherit}
   .go{background:#6c2bd9;color:#fff;border:0;padding:13px;width:100%;border-radius:10px;font-size:16px;margin-top:8px}
@@ -50,7 +48,7 @@
 </style>
 </head>
 <body>
-<h2>Anaya GameXZone</h2>
+<h2>Anaya GameXzone</h2>
 <p class="sub" id="sub"></p>
 
 <div class="lang">
@@ -63,7 +61,7 @@
 
 <div class="note" id="note"></div>
 <div id="revs"></div>
-<button class="more" id="moreBtn" onclick="showRevs()"></button>
+<button class="more" id="moreBtn" onclick="showRevs(true)"></button>
 
 <div id="own" style="display:none">
   <h4 id="ownTitle"></h4>
@@ -81,7 +79,6 @@ const PLACE_ID = "ChIJH2mNNABpfDkROn5deDedhOk";
 let lang = "hn";
 let cat = null;
 let busy = false;
-let reqId = 0;
 
 const UI = {
   hn: { sub: "Kya achha laga? Ek option chunein",
@@ -104,36 +101,30 @@ const UI = {
         copied: "✅ Review copied! Opening Google..." }
 };
 
-const LOADING = {
-  hn: "✨ Suggestions ban rahe hain...",
-  hi: "✨ सुझाव बन रहे हैं...",
-  en: "✨ Creating suggestions..."
-};
-
 const CATS = [
   { id: "games", hn: "🎮 Games", hi: "🎮 गेम्स", en: "🎮 Games" },
   { id: "place", hn: "⭐ Jagah & Service", hi: "⭐ जगह और सर्विस", en: "⭐ Place & Service" },
   { id: "party", hn: "🎂 Birthday Party", hi: "🎂 बर्थडे पार्टी", en: "🎂 Birthday Party" }
 ];
 
-// Backup lines (AI fail ho to ye dikhengi)
+// Ye lines turant dikhti hain (AI se pehle / AI fail hone par)
 const REVIEWS = {
   games: {
     hn: ["Games bahut mazedar hain, bachon aur bado sabko maza aata hai.",
          "Itne saare games ek hi jagah, time kaise nikla pata hi nahi chala.",
-         "Anaya GameXZone me gaming ka experience zabardast raha.",
+         "Anaya GameXzone me gaming ka experience zabardast raha.",
          "Games ki variety achhi hai, har age ke liye kuch na kuch hai.",
          "Dost aur family ke saath khelne me bahut maza aaya.",
          "Games thrilling aur mazedar hain, ek baar zaroor try karein."],
     hi: ["गेम्स बहुत मज़ेदार हैं, बच्चों और बड़ों सबको मज़ा आता है।",
          "इतने सारे गेम्स एक ही जगह, समय कैसे निकला पता ही नहीं चला।",
-         "Anaya GameXZone में गेमिंग का अनुभव ज़बरदस्त रहा।",
+         "Anaya GameXzone में गेमिंग का अनुभव ज़बरदस्त रहा।",
          "गेम्स की वैरायटी अच्छी है, हर उम्र के लिए कुछ न कुछ है।",
          "दोस्तों और परिवार के साथ खेलने में बहुत मज़ा आया।",
          "गेम्स रोमांचक और मज़ेदार हैं, एक बार ज़रूर आज़माएं।"],
     en: ["The games are really fun, kids and adults both enjoy them.",
          "So many games in one place, time just flew by.",
-         "Had a great gaming experience at Anaya GameXZone.",
+         "Had a great gaming experience at Anaya GameXzone.",
          "Good variety of games, something for every age.",
          "Had a lot of fun playing with friends and family.",
          "Exciting and fun games, definitely worth a visit."]
@@ -183,6 +174,29 @@ const REVIEWS = {
 const shuffle = a => [...a].sort(() => Math.random() - 0.5);
 const $ = id => document.getElementById(id);
 
+// ----- AI reviews peeche se taiyar rakhna -----
+const aiCache = {};    // taiyar AI reviews
+const aiPending = {};  // jo abhi ban rahe hain
+
+function prefetch(c, l) {
+  const k = c + "|" + l;
+  if (aiCache[k] || aiPending[k]) return;
+  aiPending[k] = true;
+  fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category: c, lang: l })
+  })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (ok && Array.isArray(d.reviews) && d.reviews.length >= 2) {
+        aiCache[k] = d.reviews.slice(0, 4);
+      }
+    })
+    .catch(() => {})
+    .finally(() => { aiPending[k] = false; });
+}
+
 function setLang(l) { lang = l; render(); }
 
 function render() {
@@ -208,7 +222,7 @@ function render() {
   showRevs();
 }
 
-async function showRevs() {
+function showRevs(fromMore) {
   const box = $("revs");
   const show = !!cat;
   $("note").style.display = show ? "block" : "none";
@@ -217,28 +231,15 @@ async function showRevs() {
   box.innerHTML = "";
   if (!show) return;
 
-  const my = ++reqId;
-  box.innerHTML = `<p class="loading">${LOADING[lang]}</p>`;
-  $("moreBtn").disabled = true;
-
+  const k = cat + "|" + lang;
   let list;
-  try {
-    const r = await fetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category: cat, lang })
-    });
-    const d = await r.json();
-    if (!r.ok || !Array.isArray(d.reviews) || d.reviews.length < 2) throw new Error("bad");
-    list = d.reviews.slice(0, 4);
-  } catch (e) {
-    // AI fail ho to backup lines
-    list = shuffle(REVIEWS[cat][lang]).slice(0, 4);
+  if (aiCache[k]) {
+    list = aiCache[k];                                // AI wale taiyar reviews, turant
+    delete aiCache[k];
+  } else {
+    list = shuffle(REVIEWS[cat][lang]).slice(0, 4);   // turant backup lines
   }
 
-  if (my !== reqId) return;
-  $("moreBtn").disabled = false;
-  box.innerHTML = "";
   list.forEach((text, i) => {
     const b = document.createElement("button");
     b.className = "rev";
@@ -247,6 +248,8 @@ async function showRevs() {
     b.onclick = () => go(text, b);
     box.appendChild(b);
   });
+
+  prefetch(cat, lang);   // agle "Aur suggestions" ke liye AI peeche se taiyar
 }
 
 function toast(msg) {
@@ -270,7 +273,7 @@ async function go(text, el) {
   toast(UI[lang].copied);
   setTimeout(() => {
     location.href = "https://search.google.com/local/writereview?placeid=" + PLACE_ID;
-    setTimeout(() => {
+    setTimeout(() => {          // user wapas aaye to dobara use kar sake
       busy = false;
       $("toast").classList.remove("show");
       if (el) el.classList.remove("done");
