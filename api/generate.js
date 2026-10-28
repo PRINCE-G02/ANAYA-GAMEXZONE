@@ -10,6 +10,35 @@ const LANGS = {
   en: "simple natural English"
 };
 
+async function askGemini(model, key, prompt) {
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 1, responseMimeType: "application/json" }
+      }),
+      signal: AbortSignal.timeout(4500)
+    }
+  );
+  const data = await r.json();
+  if (!r.ok) {
+    throw new Error(`${model} -> ${r.status}: ${JSON.stringify(data).slice(0, 300)}`);
+  }
+
+  let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+  text = text.replace(/```json|```/g, "").trim();
+  const arr = JSON.parse(text);
+  const reviews = (Array.isArray(arr) ? arr : [])
+    .filter(s => typeof s === "string" && s.trim() && s.length < 300)
+    .slice(0, 4);
+
+  if (reviews.length < 2) throw new Error(`${model} -> empty answer`);
+  return reviews;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
@@ -18,7 +47,6 @@ module.exports = async function handler(req, res) {
 
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(500).json({ error: "no key set" });
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
   const prompt =
     `Write 4 different short Google reviews for a gaming zone called "Anaya GameXZone" in Minal Residency, Bhopal.\n` +
@@ -35,35 +63,21 @@ module.exports = async function handler(req, res) {
     `Variation seed: ${Math.random()}\n` +
     `Return ONLY a JSON array of exactly 4 strings.`;
 
-  try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 1, responseMimeType: "application/json" }
-        })
-      }
-    );
-    const data = await r.json();
-    if (!r.ok) {
-      console.error("Gemini error:", JSON.stringify(data));
-      return res.status(502).json({ error: "ai failed" });
+  // Pehla model busy ho to agla try hoga
+  const models = [
+    process.env.GEMINI_MODEL || "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.1-flash-lite"
+  ];
+
+  for (const m of [...new Set(models)]) {
+    try {
+      const reviews = await askGemini(m, key, prompt);
+      console.log("OK model:", m);
+      return res.status(200).json({ reviews });
+    } catch (e) {
+      console.error("Gemini failed:", e.message);
     }
-
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-    text = text.replace(/```json|```/g, "").trim();
-    const arr = JSON.parse(text);
-    const reviews = (Array.isArray(arr) ? arr : [])
-      .filter(s => typeof s === "string" && s.trim() && s.length < 300)
-      .slice(0, 4);
-
-    if (reviews.length < 2) return res.status(502).json({ error: "empty" });
-    return res.status(200).json({ reviews });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "server error" });
   }
+  return res.status(502).json({ error: "all models failed" });
 };
