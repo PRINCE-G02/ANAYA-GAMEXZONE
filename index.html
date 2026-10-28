@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anaya GameXZone - Review</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:16px 16px 90px;background:#f7f7fb;color:#222}
+  button{font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;
+         transition:transform .12s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease, color .15s ease}
+  button:active{transform:scale(.97)}
+  h2{text-align:center;margin:8px 0 4px}
+  .sub{text-align:center;margin:0 0 12px;color:#555}
+
+  .lang{display:flex;gap:8px;justify-content:center;margin:8px 0 16px}
+  .lang button{padding:7px 14px;border:1px solid #bbb;border-radius:20px;background:#fff;font-size:15px}
+  .lang button.on{background:#6c2bd9;color:#fff;border-color:#6c2bd9}
+
+  .cats{display:grid;gap:10px}
+  .cat{padding:16px;border:2px solid #d9cdf5;border-radius:14px;background:#fff;font-size:18px;font-weight:600}
+  .cat:hover{box-shadow:0 4px 12px rgba(108,43,217,.18);border-color:#6c2bd9}
+  .cat.on{background:#6c2bd9;color:#fff;border-color:#6c2bd9}
+
+  .note{display:none;background:#efe8fd;border-radius:12px;padding:10px 12px;margin:16px 0 6px;
+        font-size:14.5px;line-height:1.45}
+
+  .rev{display:block;width:100%;padding:14px;margin:8px 0;border:1px solid #ccc;border-radius:12px;
+       background:#fff;text-align:left;font-size:16px;line-height:1.4;
+       animation:pop .3s ease both}
+  .rev:hover{box-shadow:0 4px 12px rgba(108,43,217,.18);border-color:#6c2bd9}
+  .rev.done{background:#1a7f37;color:#fff;border-color:#1a7f37}
+  @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .more{display:none;width:100%;padding:13px;margin:8px 0;border:2px dashed #6c2bd9;border-radius:12px;
+        background:#fff;color:#6c2bd9;font-size:16px;font-weight:600}
+  .more:hover{background:#f3edff}
+  .more:disabled{opacity:.5}
+  .loading{text-align:center;color:#6c2bd9;padding:14px;font-weight:600}
+
+  textarea{width:100%;height:90px;font-size:16px;padding:10px;border-radius:10px;border:1px solid #ccc;font-family:inherit}
+  .go{background:#6c2bd9;color:#fff;border:0;padding:13px;width:100%;border-radius:10px;font-size:16px;margin-top:8px}
+  .go:hover{box-shadow:0 4px 12px rgba(108,43,217,.3)}
+  h4{margin:18px 0 6px}
+
+  .toast{position:fixed;left:16px;right:16px;bottom:20px;max-width:448px;margin:auto;background:#1a7f37;
+         color:#fff;padding:14px;border-radius:12px;text-align:center;font-weight:600;
+         transform:translateY(140px);opacity:0;transition:transform .3s ease, opacity .3s ease;pointer-events:none}
+  .toast.show{transform:none;opacity:1}
+</style>
+</head>
+<body>
+<h2>Anaya GameXZone</h2>
+<p class="sub" id="sub"></p>
+
+<div class="lang">
+  <button data-l="hn" onclick="setLang('hn')">Hinglish</button>
+  <button data-l="hi" onclick="setLang('hi')">हिंदी</button>
+  <button data-l="en" onclick="setLang('en')">English</button>
+</div>
+
+<div class="cats" id="cats"></div>
+
+<div class="note" id="note"></div>
+<div id="revs"></div>
+<button class="more" id="moreBtn" onclick="showRevs()"></button>
+
+<div id="own" style="display:none">
+  <h4 id="ownTitle"></h4>
+  <textarea id="custom"></textarea>
+  <button class="go" id="ownBtn" onclick="go(document.getElementById('custom').value, null)"></button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============ SETTINGS ============
+const PLACE_ID = "ChIJH2mNNABpfDkROn5deDedhOk";
+// ==================================
+
+let lang = "hn";
+let cat = null;
+let busy = false;
+let reqId = 0;
+
+const UI = {
+  hn: { sub: "Kya achha laga? Ek option chunein",
+        note: "👆 Kisi bhi review par tap karein. Review apne aap copy ho jayega aur Google khulega. Bas Paste karke Post dabayein.",
+        more: "🔄 Aur suggestions dikhao",
+        ownTitle: "Ya apna review khud likhein:", ownBtn: "Copy karke Google par jaayein",
+        empty: "Pehle kuch likhein",
+        copied: "✅ Review copy ho gaya! Google khul raha hai..." },
+  hi: { sub: "क्या अच्छा लगा? एक विकल्प चुनें",
+        note: "👆 किसी भी रिव्यू पर टैप करें। रिव्यू अपने आप कॉपी हो जाएगा और Google खुलेगा। बस Paste करके Post दबाएं।",
+        more: "🔄 और सुझाव दिखाएं",
+        ownTitle: "या अपना रिव्यू खुद लिखें:", ownBtn: "कॉपी करके Google पर जाएं",
+        empty: "पहले कुछ लिखें",
+        copied: "✅ रिव्यू कॉपी हो गया! Google खुल रहा है..." },
+  en: { sub: "What did you like? Pick one",
+        note: "👆 Tap any review. It gets copied automatically and Google opens. Just Paste and tap Post.",
+        more: "🔄 Show more suggestions",
+        ownTitle: "Or write your own review:", ownBtn: "Copy and go to Google",
+        empty: "Please write something first",
+        copied: "✅ Review copied! Opening Google..." }
+};
+
+const LOADING = {
+  hn: "✨ Suggestions ban rahe hain...",
+  hi: "✨ सुझाव बन रहे हैं...",
+  en: "✨ Creating suggestions..."
+};
+
+const CATS = [
+  { id: "games", hn: "🎮 Games", hi: "🎮 गेम्स", en: "🎮 Games" },
+  { id: "place", hn: "⭐ Jagah & Service", hi: "⭐ जगह और सर्विस", en: "⭐ Place & Service" },
+  { id: "party", hn: "🎂 Birthday Party", hi: "🎂 बर्थडे पार्टी", en: "🎂 Birthday Party" }
+];
+
+// Backup lines (AI fail ho to ye dikhengi)
+const REVIEWS = {
+  games: {
+    hn: ["Games bahut mazedar hain, bachon aur bado sabko maza aata hai.",
+         "Itne saare games ek hi jagah, time kaise nikla pata hi nahi chala.",
+         "Anaya GameXZone me gaming ka experience zabardast raha.",
+         "Games ki variety achhi hai, har age ke liye kuch na kuch hai.",
+         "Dost aur family ke saath khelne me bahut maza aaya.",
+         "Games thrilling aur mazedar hain, ek baar zaroor try karein."],
+    hi: ["गेम्स बहुत मज़ेदार हैं, बच्चों और बड़ों सबको मज़ा आता है।",
+         "इतने सारे गेम्स एक ही जगह, समय कैसे निकला पता ही नहीं चला।",
+         "Anaya GameXZone में गेमिंग का अनुभव ज़बरदस्त रहा।",
+         "गेम्स की वैरायटी अच्छी है, हर उम्र के लिए कुछ न कुछ है।",
+         "दोस्तों और परिवार के साथ खेलने में बहुत मज़ा आया।",
+         "गेम्स रोमांचक और मज़ेदार हैं, एक बार ज़रूर आज़माएं।"],
+    en: ["The games are really fun, kids and adults both enjoy them.",
+         "So many games in one place, time just flew by.",
+         "Had a great gaming experience at Anaya GameXZone.",
+         "Good variety of games, something for every age.",
+         "Had a lot of fun playing with friends and family.",
+         "Exciting and fun games, definitely worth a visit."]
+  },
+  place: {
+    hn: ["Jagah saaf aur achhi tarah maintain hai.",
+         "Staff friendly aur helpful hai, achhi service mili.",
+         "Mahaul achha aur family ke liye comfortable hai.",
+         "Sab kuch achhe se manage kiya hua hai, service achhi hai.",
+         "Paisa vasool jagah hai, dobara zaroor aayenge.",
+         "Achhi jagah hai, bachon ko le jaane ke liye bhi theek hai."],
+    hi: ["जगह साफ़ और अच्छी तरह मेंटेन है।",
+         "स्टाफ फ्रेंडली और मददगार है, अच्छी सर्विस मिली।",
+         "माहौल अच्छा और परिवार के लिए आरामदायक है।",
+         "सब कुछ अच्छे से मैनेज किया हुआ है, सर्विस अच्छी है।",
+         "पैसा वसूल जगह है, दोबारा ज़रूर आएंगे।",
+         "अच्छी जगह है, बच्चों को ले जाने के लिए भी ठीक है।"],
+    en: ["The place is clean and well maintained.",
+         "Friendly and helpful staff, got good service.",
+         "Nice atmosphere, comfortable for families.",
+         "Everything is well managed and the service is good.",
+         "Good value for money, will visit again.",
+         "A nice place, also good to visit with kids."]
+  },
+  party: {
+    hn: ["Birthday party ke liye achha space aur packages hain.",
+         "Birthday celebration ke liye perfect jagah hai.",
+         "Party ka arrangement achha hai aur staff ka saath bhi achha hai.",
+         "Bachon ki birthday party ke liye bahut achhi jagah hai.",
+         "Bachon ko party me bahut maza aata hai, highly recommended.",
+         "Birthday party plan karne ke liye achha option hai."],
+    hi: ["बर्थडे पार्टी के लिए अच्छा स्पेस और पैकेज हैं।",
+         "बर्थडे सेलिब्रेशन के लिए परफेक्ट जगह है।",
+         "पार्टी का अरेंजमेंट अच्छा है और स्टाफ का साथ भी अच्छा है।",
+         "बच्चों की बर्थडे पार्टी के लिए बहुत अच्छी जगह है।",
+         "बच्चों को पार्टी में बहुत मज़ा आता है, ज़रूर आज़माएं।",
+         "बर्थडे पार्टी प्लान करने के लिए अच्छा विकल्प है।"],
+    en: ["Good space and packages for birthday parties.",
+         "A perfect place for birthday celebrations.",
+         "Nice party arrangement and supportive staff.",
+         "A great place for kids' birthday parties.",
+         "Kids have a great time at the party, highly recommended.",
+         "A good option to plan a birthday party."]
+  }
+};
+
+const shuffle = a => [...a].sort(() => Math.random() - 0.5);
+const $ = id => document.getElementById(id);
+
+function setLang(l) { lang = l; render(); }
+
+function render() {
+  const u = UI[lang];
+  document.documentElement.lang = lang === "en" ? "en" : "hi";
+  $("sub").textContent = u.sub;
+  $("note").textContent = u.note;
+  $("moreBtn").textContent = u.more;
+  $("ownTitle").textContent = u.ownTitle;
+  $("ownBtn").textContent = u.ownBtn;
+  document.querySelectorAll(".lang button").forEach(b =>
+    b.classList.toggle("on", b.dataset.l === lang));
+
+  const box = $("cats");
+  box.innerHTML = "";
+  CATS.forEach(c => {
+    const b = document.createElement("button");
+    b.className = "cat" + (cat === c.id ? " on" : "");
+    b.textContent = c[lang];
+    b.onclick = () => { cat = c.id; render(); };
+    box.appendChild(b);
+  });
+  showRevs();
+}
+
+async function showRevs() {
+  const box = $("revs");
+  const show = !!cat;
+  $("note").style.display = show ? "block" : "none";
+  $("moreBtn").style.display = show ? "block" : "none";
+  $("own").style.display = show ? "block" : "none";
+  box.innerHTML = "";
+  if (!show) return;
+
+  const my = ++reqId;
+  box.innerHTML = `<p class="loading">${LOADING[lang]}</p>`;
+  $("moreBtn").disabled = true;
+
+  let list;
+  try {
+    const r = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category: cat, lang })
+    });
+    const d = await r.json();
+    if (!r.ok || !Array.isArray(d.reviews) || d.reviews.length < 2) throw new Error("bad");
+    list = d.reviews.slice(0, 4);
+  } catch (e) {
+    // AI fail ho to backup lines
+    list = shuffle(REVIEWS[cat][lang]).slice(0, 4);
+  }
+
+  if (my !== reqId) return;
+  $("moreBtn").disabled = false;
+  box.innerHTML = "";
+  list.forEach((text, i) => {
+    const b = document.createElement("button");
+    b.className = "rev";
+    b.style.animationDelay = (i * 0.06) + "s";
+    b.textContent = text;
+    b.onclick = () => go(text, b);
+    box.appendChild(b);
+  });
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+}
+
+async function go(text, el) {
+  if (busy) return;
+  text = (text || "").trim();
+  if (!text) return alert(UI[lang].empty);
+  busy = true;
+  if (el) el.classList.add("done");
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = $("custom");
+    ta.value = text; ta.select(); document.execCommand("copy");
+  }
+  toast(UI[lang].copied);
+  setTimeout(() => {
+    location.href = "https://search.google.com/local/writereview?placeid=" + PLACE_ID;
+    setTimeout(() => {
+      busy = false;
+      $("toast").classList.remove("show");
+      if (el) el.classList.remove("done");
+    }, 1500);
+  }, 1000);
+}
+
+render();
+</script>
+</body>
+</html>
