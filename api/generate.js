@@ -1,4 +1,4 @@
-const CATS = {
+const TOPICS = {
   games: "the games at a kids and family gaming zone (fun, good variety, enjoyed by kids and adults, time flew by). Do NOT name any specific game.",
   place: "the place and service (cleanliness, friendly staff, comfortable atmosphere, value for money).",
   party: "birthday party space and arrangement for kids' birthday parties (good space, nice arrangement, helpful staff)."
@@ -21,7 +21,7 @@ function fitsLang(lang, text) {
   return true;
 }
 
-async function askGemini(model, key, prompt, lang) {
+async function askGemini(model, key, prompt, lang, cats, timeoutMs) {
   const r = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
@@ -31,7 +31,7 @@ async function askGemini(model, key, prompt, lang) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 1, responseMimeType: "application/json" }
       }),
-      signal: AbortSignal.timeout(7000)
+      signal: AbortSignal.timeout(timeoutMs)
     }
   );
   const data = await r.json();
@@ -39,31 +39,37 @@ async function askGemini(model, key, prompt, lang) {
     throw new Error(`${model} -> ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
   }
 
-  let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+  let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
   text = text.replace(/```json|```/g, "").trim();
-  const arr = JSON.parse(text);
+  const obj = JSON.parse(text);
 
-  const reviews = (Array.isArray(arr) ? arr : [])
-    .filter(s => typeof s === "string" && s.trim() && s.length < 300)
-    .filter(s => fitsLang(lang, s))
-    .slice(0, 4);
-
-  if (reviews.length < 2) throw new Error(`${model} -> wrong language or empty (${lang})`);
-  return reviews;
+  const out = {};
+  for (const c of cats) {
+    const arr = Array.isArray(obj[c]) ? obj[c] : [];
+    const good = arr
+      .filter(s => typeof s === "string" && s.trim() && s.length < 300)
+      .filter(s => fitsLang(lang, s))
+      .slice(0, 4);
+    if (good.length >= 2) out[c] = good;
+  }
+  if (!Object.keys(out).length) throw new Error(`${model} -> wrong language or empty (${lang})`);
+  return out;
 }
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
-  const { category, lang } = req.body || {};
-  if (!CATS[category] || !LANG_RULES[lang]) return res.status(400).json({ error: "bad input" });
+  const { cats, lang } = req.body || {};
+  const list = (Array.isArray(cats) ? cats : []).filter(c => TOPICS[c]).slice(0, 3);
+  if (!list.length || !LANG_RULES[lang]) return res.status(400).json({ error: "bad input" });
 
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(500).json({ error: "no key set" });
 
   const prompt =
-    `Write 4 different short Google reviews for a gaming zone called "Anaya GameXzone" in Minal Residency, Bhopal.\n` +
-    `Topic: ${CATS[category]}\n` +
+    `Write short Google reviews for a gaming zone called "Anaya GameXzone" in Minal Residency, Bhopal.\n` +
+    `For EACH topic below write 4 different reviews.\n` +
+    `Topics:\n` + list.map(c => `- ${c}: ${TOPICS[c]}`).join("\n") + `\n` +
     `${LANG_RULES[lang]}\n` +
     `Rules:\n` +
     `- Each review is 1 or 2 short sentences, under 25 words.\n` +
@@ -74,27 +80,22 @@ module.exports = async function handler(req, res) {
     `- Do not claim anything specific that may not be true.\n` +
     `- Do not mention AI.\n` +
     `Variation seed: ${Math.random()}\n` +
-    `Return ONLY a JSON array of exactly 4 strings.`;
+    `Return ONLY a JSON object with the keys ${list.map(c => `"${c}"`).join(", ")}, each an array of exactly 4 strings.`;
 
-  // Teeno models ek saath, jo pehle sahi jawab de wahi jeetega
-  const models = [...new Set([
-    "gemini-flash-lite-latest",
-    "gemini-3.1-flash-lite",
-    process.env.GEMINI_MODEL || "gemini-flash-latest"
-  ])];
+  // Ek ke baad ek (saath nahi). Dusra model tabhi chalega jab pehla fail ho.
+  const attempts = [
+    { model: "gemini-flash-lite-latest", ms: 6000 },
+    { model: "gemini-3.1-flash-lite", ms: 3500 }
+  ];
 
-  try {
-    const reviews = await Promise.any(
-      models.map(m =>
-        askGemini(m, key, prompt, lang).then(r => {
-          console.log("OK model:", m, "lang:", lang);
-          return r;
-        })
-      )
-    );
-    return res.status(200).json({ reviews });
-  } catch (e) {
-    (e.errors || [e]).forEach(x => console.error("Gemini failed:", x.message));
-    return res.status(502).json({ error: "all models failed" });
+  for (const a of attempts) {
+    try {
+      const reviews = await askGemini(a.model, key, prompt, lang, list, a.ms);
+      console.log("OK model:", a.model, "lang:", lang, "cats:", list.join(","));
+      return res.status(200).json({ reviews });
+    } catch (e) {
+      console.error("Gemini failed:", e.message);
+    }
   }
+  return res.status(502).json({ error: "all models failed" });
 };

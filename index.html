@@ -13,9 +13,11 @@
   h2{text-align:center;margin:8px 0 4px}
   .sub{text-align:center;margin:0 0 12px;color:#555}
 
-  .lang{display:flex;gap:8px;justify-content:center;margin:8px 0 16px}
+  .lang{display:flex;gap:8px;justify-content:center;margin:8px 0 14px}
   .lang button{padding:7px 14px;border:1px solid #bbb;border-radius:20px;background:#fff;font-size:15px}
   .lang button.on{background:#6c2bd9;color:#fff;border-color:#6c2bd9}
+
+  .hint{background:#fff6dd;border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:14.5px;line-height:1.45}
 
   .cats{display:grid;gap:10px}
   .cat{padding:16px;border:2px solid #d9cdf5;border-radius:14px;background:#fff;font-size:18px;font-weight:600}
@@ -31,6 +33,8 @@
   .rev:hover{box-shadow:0 4px 12px rgba(108,43,217,.18);border-color:#6c2bd9}
   .rev.done{background:#1a7f37;color:#fff;border-color:#1a7f37}
   @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .loading{text-align:center;color:#6c2bd9;padding:14px;font-weight:600}
 
   .more{display:none;width:100%;padding:13px;margin:8px 0;border:2px dashed #6c2bd9;border-radius:12px;
         background:#fff;color:#6c2bd9;font-size:16px;font-weight:600}
@@ -57,11 +61,12 @@
   <button data-l="en" onclick="setLang('en')">English</button>
 </div>
 
+<div class="hint" id="hint"></div>
 <div class="cats" id="cats"></div>
 
 <div class="note" id="note"></div>
 <div id="revs"></div>
-<button class="more" id="moreBtn" onclick="showRevs(true)"></button>
+<button class="more" id="moreBtn" onclick="showRevs()"></button>
 
 <div id="own" style="display:none">
   <h4 id="ownTitle"></h4>
@@ -74,27 +79,37 @@
 <script>
 // ============ SETTINGS ============
 const PLACE_ID = "ChIJH2mNNABpfDkROn5deDedhOk";
+const AI_ON = true;     // AI band karna ho to false kar do
+const MAX_AI = 6;       // ek visit me AI ko maximum itni requests
+const WAIT_MS = 2500;   // AI ke liye customer maximum itna ruk sakta hai
 // ==================================
 
 let lang = "hn";
 let cat = null;
 let busy = false;
+let reqId = 0;
 
 const UI = {
   hn: { sub: "Kya achha laga? Ek option chunein",
+        hint: "💭 Aapko kya-kya achha laga? Neeche se wo cheez chunein jiske baare me review dena hai: Games, Jagah & Service ya Birthday Party. Chunte hi suggestions dikh jayenge.",
         note: "👆 Kisi bhi review par tap karein. Review apne aap copy ho jayega aur Google khulega. Bas Paste karke Post dabayein.",
+        loading: "✨ Suggestions taiyar ho rahe hain...",
         more: "🔄 Aur suggestions dikhao",
         ownTitle: "Ya apna review khud likhein:", ownBtn: "Copy karke Google par jaayein",
         empty: "Pehle kuch likhein",
         copied: "✅ Review copy ho gaya! Google khul raha hai..." },
   hi: { sub: "क्या अच्छा लगा? एक विकल्प चुनें",
+        hint: "💭 आपको क्या-क्या अच्छा लगा? नीचे से वह चीज़ चुनें जिसके बारे में रिव्यू देना है: गेम्स, जगह और सर्विस, या बर्थडे पार्टी। चुनते ही सुझाव दिख जाएंगे।",
         note: "👆 किसी भी रिव्यू पर टैप करें। रिव्यू अपने आप कॉपी हो जाएगा और Google खुलेगा। बस Paste करके Post दबाएं।",
+        loading: "✨ सुझाव तैयार हो रहे हैं...",
         more: "🔄 और सुझाव दिखाएं",
         ownTitle: "या अपना रिव्यू खुद लिखें:", ownBtn: "कॉपी करके Google पर जाएं",
         empty: "पहले कुछ लिखें",
         copied: "✅ रिव्यू कॉपी हो गया! Google खुल रहा है..." },
   en: { sub: "What did you like? Pick one",
+        hint: "💭 What did you like? Pick what you want to review: Games, Place & Service, or Birthday Party. Suggestions appear right away.",
         note: "👆 Tap any review. It gets copied automatically and Google opens. Just Paste and tap Post.",
+        loading: "✨ Getting suggestions ready...",
         more: "🔄 Show more suggestions",
         ownTitle: "Or write your own review:", ownBtn: "Copy and go to Google",
         empty: "Please write something first",
@@ -107,7 +122,7 @@ const CATS = [
   { id: "party", hn: "🎂 Birthday Party", hi: "🎂 बर्थडे पार्टी", en: "🎂 Birthday Party" }
 ];
 
-// Ye lines turant dikhti hain (AI se pehle / AI fail hone par)
+// Apni lines (har category/language me 20). Nayi line jodni ho to ek line aur likh do (comma lagana mat bhoolna)
 const REVIEWS = {
   games: {
     hn: ["Games bahut mazedar hain, bachon aur bado sabko maza aata hai.",
@@ -115,19 +130,61 @@ const REVIEWS = {
          "Anaya GameXzone me gaming ka experience zabardast raha.",
          "Games ki variety achhi hai, har age ke liye kuch na kuch hai.",
          "Dost aur family ke saath khelne me bahut maza aaya.",
-         "Games thrilling aur mazedar hain, ek baar zaroor try karein."],
+         "Games thrilling aur mazedar hain, ek baar zaroor try karein.",
+         "Bachon ka yahan se jaane ka mann hi nahi kar raha tha, itna maza aaya.",
+         "Kuch naya aur alag try karna ho to yahan ke games achhe hain.",
+         "Weekend par family ke saath time bitaane ke liye badhiya jagah hai.",
+         "Games ka setup achha hai aur khelne me poora maza aata hai.",
+         "Bachon aur bado dono ke liye yahan kuch na kuch mazedar milta hai.",
+         "Ek baar aaoge to dobara aane ka mann karega, itne mazedar games hain.",
+         "Yahan ke games dekhkar bachon ke chehre khil gaye, bahut maza aaya.",
+         "Dosto ke saath competition karne me alag hi maza hai.",
+         "Time pass karne aur bachon ko khush karne ke liye achhi jagah hai.",
+         "Har tarah ke games hain, isliye sabne apni pasand ka kuch khel liya.",
+         "Yahan bachon ke saath bitaya time yaadgaar raha, games sach me mazedar hain.",
+         "Games khelte-khelte kab do ghante nikal gaye pata hi nahi chala.",
+         "Bachon ke liye khelne ki achhi jagah, wo bahut khush hokar nikle.",
+         "Alag-alag tarah ke games ek jagah milna bahut achha laga."],
     hi: ["गेम्स बहुत मज़ेदार हैं, बच्चों और बड़ों सबको मज़ा आता है।",
          "इतने सारे गेम्स एक ही जगह, समय कैसे निकला पता ही नहीं चला।",
          "Anaya GameXzone में गेमिंग का अनुभव ज़बरदस्त रहा।",
          "गेम्स की वैरायटी अच्छी है, हर उम्र के लिए कुछ न कुछ है।",
          "दोस्तों और परिवार के साथ खेलने में बहुत मज़ा आया।",
-         "गेम्स रोमांचक और मज़ेदार हैं, एक बार ज़रूर आज़माएं।"],
+         "गेम्स रोमांचक और मज़ेदार हैं, एक बार ज़रूर आज़माएं।",
+         "बच्चों का यहाँ से जाने का मन ही नहीं कर रहा था, इतना मज़ा आया।",
+         "कुछ नया और अलग आज़माना हो तो यहाँ के गेम्स अच्छे हैं।",
+         "वीकेंड पर परिवार के साथ समय बिताने के लिए बढ़िया जगह है।",
+         "गेम्स का सेटअप अच्छा है और खेलने में पूरा मज़ा आता है।",
+         "बच्चों और बड़ों दोनों के लिए यहाँ कुछ न कुछ मज़ेदार मिलता है।",
+         "एक बार आओगे तो दोबारा आने का मन करेगा, इतने मज़ेदार गेम्स हैं।",
+         "यहाँ के गेम्स देखकर बच्चों के चेहरे खिल गए, बहुत मज़ा आया।",
+         "दोस्तों के साथ मुक़ाबला करने में अलग ही मज़ा है।",
+         "टाइम पास करने और बच्चों को खुश करने के लिए अच्छी जगह है।",
+         "हर तरह के गेम्स हैं, इसलिए सबने अपनी पसंद का कुछ खेल लिया।",
+         "यहाँ बच्चों के साथ बिताया समय यादगार रहा, गेम्स सच में मज़ेदार हैं।",
+         "गेम्स खेलते-खेलते कब दो घंटे निकल गए पता ही नहीं चला।",
+         "बच्चों के लिए खेलने की अच्छी जगह, वे बहुत खुश होकर निकले।",
+         "अलग-अलग तरह के गेम्स एक जगह मिलना बहुत अच्छा लगा।"],
     en: ["The games are really fun, kids and adults both enjoy them.",
          "So many games in one place, time just flew by.",
          "Had a great gaming experience at Anaya GameXzone.",
          "Good variety of games, something for every age.",
          "Had a lot of fun playing with friends and family.",
-         "Exciting and fun games, definitely worth a visit."]
+         "Exciting and fun games, definitely worth a visit.",
+         "The kids did not want to leave, they had so much fun.",
+         "A good place to try something new and different.",
+         "A great spot to spend the weekend with family.",
+         "Nice game setup and a lot of fun to play.",
+         "There is something fun here for both kids and adults.",
+         "Once you visit, you will want to come back, the games are that much fun.",
+         "The kids' faces lit up when they saw the games, we had a great time.",
+         "Competing with friends here is a lot of fun.",
+         "A good place to pass time and keep the kids happy.",
+         "There are all kinds of games, so everyone found something they liked.",
+         "The time spent here with the kids was memorable, the games are really fun.",
+         "We did not realise how the hours went by while playing.",
+         "A good place for kids to play, they left very happy.",
+         "Loved finding so many different kinds of games in one place."]
   },
   place: {
     hn: ["Jagah saaf aur achhi tarah maintain hai.",
@@ -135,19 +192,61 @@ const REVIEWS = {
          "Mahaul achha aur family ke liye comfortable hai.",
          "Sab kuch achhe se manage kiya hua hai, service achhi hai.",
          "Paisa vasool jagah hai, dobara zaroor aayenge.",
-         "Achhi jagah hai, bachon ko le jaane ke liye bhi theek hai."],
+         "Achhi jagah hai, bachon ko le jaane ke liye bhi theek hai.",
+         "Staff ka behavior bahut achha tha, har cheez me madad ki.",
+         "Safai achhi hai aur baithne ki jagah bhi aaramdayak hai.",
+         "Yahan aakar achha laga, sab kuch organized hai.",
+         "Family ke saath aane ke liye comfortable aur safe jagah lagi.",
+         "Service achhi hai aur staff ne poora dhyaan rakha.",
+         "Overall experience bahut achha raha, zaroor recommend karenge.",
+         "Entry se lekar bahar nikalne tak sab kuch smooth raha.",
+         "Staff ne achhe se samjhaya aur poori madad ki.",
+         "Jagah khuli aur saaf lagi, family ke saath aaram se ghoom sakte hain.",
+         "Achha mahaul hai, dobara aane ka mann karega.",
+         "Bachon ke saath aane me koi pareshani nahi hui, sab kuch achhe se sambhala hua hai.",
+         "Aaram se baithne aur dekhne ki jagah hai, mahaul khushnuma laga.",
+         "Staff ne muskurakar swagat kiya aur har sawal ka jawab diya.",
+         "Andar ka mahaul sukoon wala aur khushnuma laga."],
     hi: ["जगह साफ़ और अच्छी तरह मेंटेन है।",
          "स्टाफ फ्रेंडली और मददगार है, अच्छी सर्विस मिली।",
          "माहौल अच्छा और परिवार के लिए आरामदायक है।",
          "सब कुछ अच्छे से मैनेज किया हुआ है, सर्विस अच्छी है।",
          "पैसा वसूल जगह है, दोबारा ज़रूर आएंगे।",
-         "अच्छी जगह है, बच्चों को ले जाने के लिए भी ठीक है।"],
+         "अच्छी जगह है, बच्चों को ले जाने के लिए भी ठीक है।",
+         "स्टाफ का व्यवहार बहुत अच्छा था, हर चीज़ में मदद की।",
+         "सफ़ाई अच्छी है और बैठने की जगह भी आरामदायक है।",
+         "यहाँ आकर अच्छा लगा, सब कुछ व्यवस्थित है।",
+         "परिवार के साथ आने के लिए आरामदायक और सुरक्षित जगह लगी।",
+         "सर्विस अच्छी है और स्टाफ ने पूरा ध्यान रखा।",
+         "कुल मिलाकर अनुभव बहुत अच्छा रहा, ज़रूर रेकमेंड करेंगे।",
+         "अंदर आने से लेकर बाहर निकलने तक सब कुछ आसान रहा।",
+         "स्टाफ ने अच्छे से समझाया और पूरी मदद की।",
+         "जगह खुली और साफ़ लगी, परिवार के साथ आराम से घूम सकते हैं।",
+         "अच्छा माहौल है, दोबारा आने का मन करेगा।",
+         "बच्चों के साथ आने में कोई परेशानी नहीं हुई, सब कुछ अच्छे से संभाला हुआ है।",
+         "आराम से बैठने और देखने की जगह है, माहौल खुशनुमा लगा।",
+         "स्टाफ ने मुस्कुराकर स्वागत किया और हर सवाल का जवाब दिया।",
+         "अंदर का माहौल सुकून वाला और खुशनुमा लगा।"],
     en: ["The place is clean and well maintained.",
          "Friendly and helpful staff, got good service.",
          "Nice atmosphere, comfortable for families.",
          "Everything is well managed and the service is good.",
          "Good value for money, will visit again.",
-         "A nice place, also good to visit with kids."]
+         "A nice place, also good to visit with kids.",
+         "The staff behaved very well and helped with everything.",
+         "Clean place with comfortable seating.",
+         "Liked the visit, everything is well organized.",
+         "A comfortable and safe place to visit with family.",
+         "Good service and the staff took good care of us.",
+         "Overall a great experience, would recommend.",
+         "Everything was smooth from entry to exit.",
+         "The staff explained things well and helped throughout.",
+         "The place felt open and clean, easy to explore with family.",
+         "A nice atmosphere, we would love to come back.",
+         "Coming with kids was no trouble, everything is handled well.",
+         "A comfortable place to sit and watch, the mood was cheerful.",
+         "The staff welcomed us with a smile and answered every question.",
+         "The atmosphere inside felt relaxed and cheerful."]
   },
   party: {
     hn: ["Birthday party ke liye achha space aur packages hain.",
@@ -155,54 +254,135 @@ const REVIEWS = {
          "Party ka arrangement achha hai aur staff ka saath bhi achha hai.",
          "Bachon ki birthday party ke liye bahut achhi jagah hai.",
          "Bachon ko party me bahut maza aata hai, highly recommended.",
-         "Birthday party plan karne ke liye achha option hai."],
+         "Birthday party plan karne ke liye achha option hai.",
+         "Party ke liye jagah kaafi achhi hai, sab aaram se enjoy kar sakte hain.",
+         "Bachon ki birthday yahan manane ke liye achha option hai.",
+         "Games ke saath birthday party ka maza hi alag hai.",
+         "Birthday party ke liye staff madadgaar lagta hai.",
+         "Party me bachon ko khoob enjoy karte dekha, achha laga.",
+         "Birthday ke liye packages aur space dono achhe hain, ek baar try karein.",
+         "Birthday ke liye jagah aur arrangement dono achhe lage.",
+         "Party me aaye bachche bahut khush dikhe.",
+         "Birthday ko yaadgaar banane ke liye achha option hai.",
+         "Games aur party ek hi jagah, isse aasaan kuch nahi.",
+         "Birthday party ke liye jagah aur bachon ka enjoyment dono achhe lage.",
+         "Party ke liye yahan ka mahaul bachon ko bahut pasand aaya.",
+         "Birthday manane ke liye ek hi jagah par games aur space mil gaya.",
+         "Party me aaye mehmaan bhi khush the, achha experience raha."],
     hi: ["बर्थडे पार्टी के लिए अच्छा स्पेस और पैकेज हैं।",
          "बर्थडे सेलिब्रेशन के लिए परफेक्ट जगह है।",
          "पार्टी का अरेंजमेंट अच्छा है और स्टाफ का साथ भी अच्छा है।",
          "बच्चों की बर्थडे पार्टी के लिए बहुत अच्छी जगह है।",
          "बच्चों को पार्टी में बहुत मज़ा आता है, ज़रूर आज़माएं।",
-         "बर्थडे पार्टी प्लान करने के लिए अच्छा विकल्प है।"],
+         "बर्थडे पार्टी प्लान करने के लिए अच्छा विकल्प है।",
+         "पार्टी के लिए जगह काफ़ी अच्छी है, सब आराम से एन्जॉय कर सकते हैं।",
+         "बच्चों की बर्थडे यहाँ मनाने के लिए अच्छा विकल्प है।",
+         "गेम्स के साथ बर्थडे पार्टी का मज़ा ही अलग है।",
+         "बर्थडे पार्टी के लिए स्टाफ मददगार लगता है।",
+         "पार्टी में बच्चों को खूब एन्जॉय करते देखा, अच्छा लगा।",
+         "बर्थडे के लिए पैकेज और स्पेस दोनों अच्छे हैं, एक बार आज़माएं।",
+         "बर्थडे के लिए जगह और अरेंजमेंट दोनों अच्छे लगे।",
+         "पार्टी में आए बच्चे बहुत खुश दिखे।",
+         "बर्थडे को यादगार बनाने के लिए अच्छा विकल्प है।",
+         "गेम्स और पार्टी एक ही जगह, इससे आसान कुछ नहीं।",
+         "बर्थडे पार्टी के लिए जगह और बच्चों का एन्जॉयमेंट दोनों अच्छे लगे।",
+         "पार्टी के लिए यहाँ का माहौल बच्चों को बहुत पसंद आया।",
+         "बर्थडे मनाने के लिए एक ही जगह पर गेम्स और स्पेस मिल गया।",
+         "पार्टी में आए मेहमान भी खुश थे, अच्छा अनुभव रहा।"],
     en: ["Good space and packages for birthday parties.",
          "A perfect place for birthday celebrations.",
          "Nice party arrangement and supportive staff.",
          "A great place for kids' birthday parties.",
          "Kids have a great time at the party, highly recommended.",
-         "A good option to plan a birthday party."]
+         "A good option to plan a birthday party.",
+         "Good space for a party, everyone can enjoy comfortably.",
+         "A good option to celebrate a kid's birthday.",
+         "A birthday party with games is a lot more fun.",
+         "The staff seems helpful for birthday parties.",
+         "Saw the kids really enjoying the party, it was nice to see.",
+         "Both the packages and the space are good for a birthday, worth a try.",
+         "Both the space and the arrangement were good for a birthday.",
+         "The kids who came to the party looked very happy.",
+         "A good option to make a birthday memorable.",
+         "Games and party in one place, hard to beat that.",
+         "Both the space and the kids' enjoyment were great for a birthday party.",
+         "The kids really liked the atmosphere here for a party.",
+         "Games and space for a birthday party, all in one place.",
+         "The guests at the party were happy too, a good experience."]
   }
 };
 
 const shuffle = a => [...a].sort(() => Math.random() - 0.5);
 const $ = id => document.getElementById(id);
 
-// ----- AI reviews peeche se taiyar rakhna -----
-const aiCache = {};    // taiyar AI reviews
-const aiPending = {};  // jo abhi ban rahe hain
+// ---------- Apni lines: bina repeat ke, har visitor ko alag order ----------
+const ownQueue = {};
+function nextOwn() {
+  const k = cat + "|" + lang;
+  if (!ownQueue[k] || ownQueue[k].length < 4) ownQueue[k] = shuffle(REVIEWS[cat][lang]);
+  return ownQueue[k].splice(0, 4);
+}
 
-function prefetch(c, l) {
-  const k = c + "|" + l;
-  if (aiCache[k] || aiPending[k]) return;
-  aiPending[k] = true;
+// ---------- AI: peeche se taiyar rakhna (kam requests) ----------
+const aiCache = {};     // taiyar AI reviews  ("games|hn" -> [4 lines])
+const aiPending = {};   // jo abhi ban rahe hain
+const turn = {};        // "ai" ya "own": agli baari kiski? (shuru me AI)
+let aiFails = 0;
+let aiCount = 0;
+
+function prefetch(cats, l) {
+  if (!AI_ON || aiFails >= 2 || aiCount >= MAX_AI) return;
+  const need = cats.filter(c => !aiCache[c + "|" + l] && !aiPending[c + "|" + l]);
+  if (!need.length) return;
+  need.forEach(c => { aiPending[c + "|" + l] = true; });
+  aiCount++;
   fetch("/api/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ category: c, lang: l })
+    body: JSON.stringify({ cats: need, lang: l })
   })
     .then(r => r.json().then(d => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
-      if (ok && Array.isArray(d.reviews) && d.reviews.length >= 2) {
-        aiCache[k] = d.reviews.slice(0, 4);
+      let got = 0;
+      if (ok && d.reviews) {
+        need.forEach(c => {
+          const arr = d.reviews[c];
+          if (Array.isArray(arr) && arr.length >= 2) {
+            aiCache[c + "|" + l] = arr.slice(0, 4);
+            got++;
+          }
+        });
       }
+      if (got) aiFails = 0; else aiFails++;
     })
-    .catch(() => {})
-    .finally(() => { aiPending[k] = false; });
+    .catch(() => { aiFails++; })
+    .finally(() => { need.forEach(c => { aiPending[c + "|" + l] = false; }); });
 }
 
-function setLang(l) { lang = l; render(); }
+// AI taiyar hone ka thodi der intezaar (maximum WAIT_MS)
+function waitFor(k, ms) {
+  return new Promise(res => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (aiCache[k] || !aiPending[k] || Date.now() - t0 > ms) {
+        clearInterval(iv);
+        res();
+      }
+    }, 120);
+  });
+}
+
+function setLang(l) {
+  lang = l;
+  prefetch(CATS.map(c => c.id), lang);   // nayi language ke AI reviews peeche se
+  render();
+}
 
 function render() {
   const u = UI[lang];
   document.documentElement.lang = lang === "en" ? "en" : "hi";
   $("sub").textContent = u.sub;
+  $("hint").textContent = u.hint;
   $("note").textContent = u.note;
   $("moreBtn").textContent = u.more;
   $("ownTitle").textContent = u.ownTitle;
@@ -216,13 +396,17 @@ function render() {
     const b = document.createElement("button");
     b.className = "cat" + (cat === c.id ? " on" : "");
     b.textContent = c[lang];
-    b.onclick = () => { cat = c.id; render(); };
+    b.onclick = () => {
+      if (cat === c.id) return;   // wahi category dobara dabane par refresh nahi
+      cat = c.id;
+      render();
+    };
     box.appendChild(b);
   });
   showRevs();
 }
 
-function showRevs(fromMore) {
+async function showRevs() {
   const box = $("revs");
   const show = !!cat;
   $("note").style.display = show ? "block" : "none";
@@ -231,15 +415,32 @@ function showRevs(fromMore) {
   box.innerHTML = "";
   if (!show) return;
 
+  const my = ++reqId;
   const k = cat + "|" + lang;
-  let list;
-  if (aiCache[k]) {
-    list = aiCache[k];                                // AI wale taiyar reviews, turant
-    delete aiCache[k];
-  } else {
-    list = shuffle(REVIEWS[cat][lang]).slice(0, 4);   // turant backup lines
+  let list = null;
+
+  // AI ki baari (shuru me hamesha AI)
+  if (turn[k] !== "own") {
+    if (!aiCache[k] && aiPending[k]) {
+      box.innerHTML = `<p class="loading">${UI[lang].loading}</p>`;
+      await waitFor(k, WAIT_MS);
+      if (my !== reqId) return;   // customer ne beech me kuch aur dabaya
+    }
+    if (aiCache[k]) {
+      list = aiCache[k];
+      delete aiCache[k];
+      turn[k] = "own";
+    }
   }
 
+  // Apni lines ki baari (ya AI ready nahi tha)
+  if (!list) {
+    list = nextOwn();
+    turn[k] = "ai";
+    prefetch([cat], lang);   // jab tak customer ye dekhe, agla AI batch taiyar
+  }
+
+  box.innerHTML = "";
   list.forEach((text, i) => {
     const b = document.createElement("button");
     b.className = "rev";
@@ -248,8 +449,6 @@ function showRevs(fromMore) {
     b.onclick = () => go(text, b);
     box.appendChild(b);
   });
-
-  prefetch(cat, lang);   // agle "Aur suggestions" ke liye AI peeche se taiyar
 }
 
 function toast(msg) {
@@ -273,7 +472,7 @@ async function go(text, el) {
   toast(UI[lang].copied);
   setTimeout(() => {
     location.href = "https://search.google.com/local/writereview?placeid=" + PLACE_ID;
-    setTimeout(() => {          // user wapas aaye to dobara use kar sake
+    setTimeout(() => {
       busy = false;
       $("toast").classList.remove("show");
       if (el) el.classList.remove("done");
@@ -281,6 +480,8 @@ async function go(text, el) {
   }, 1000);
 }
 
+// Page khulte hi: teeno categories ke AI reviews ek hi request me peeche se
+prefetch(CATS.map(c => c.id), lang);
 render();
 </script>
 </body>
